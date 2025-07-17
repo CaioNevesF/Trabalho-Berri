@@ -359,7 +359,7 @@
             try {
               // Conectar ao WebSocket
               this.ws = new WebSocket(
-                "ws://127.0.0.1:8080/ws?nickname=" + encodeURIComponent(this.nickname)
+              "wss://trabalho-berri-production.up.railway.app/ws?nickname=" + encodeURIComponent(this.nickname)
               );
               
               this.ws.onopen = this.onOpen;
