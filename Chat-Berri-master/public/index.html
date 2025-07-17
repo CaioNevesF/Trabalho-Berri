@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css" />
+    <title>Trabalho berri</title>
+  </head>
+  <body>
+    <div id="app">
+      <!-- Tela de Login -->
+      <div class="container" v-if="!connected">
+        <div class="form login-form">
+          <h1>💬 Chat dos Guri</h1>
+          <input
+            class="input"
+            v-model="nickname"
+            type="text"
+            placeholder="Digite seu nickname"
+            @keyup.enter="connect()"
+            maxlength="20"
+            autocomplete="username"
+          />
+          <button class="button interactive-element" @click="connect()" :disabled="!nickname.trim()">
+            <span v-if="connectionStatus === 'connecting'">Conectando...</span>
+            <span v-else>🚀 Entrar no Chat</span>
+          </button>
+          <div v-if="loadedMessagesInfo" style="margin-top: 20px; color: rgba(0, 0, 0, 0.7); font-size: 14px; text-align: center;">
+            {{ loadedMessagesInfo }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Painel de Usuários -->
+      <div class="painel-usuarios" v-if="connected">
+        <label>👥 Usuários Online ({{usuarios.length}})</label>
+        <div v-if="usuarios.length === 0" style="text-align: center; opacity: 0.6; margin-top: 20px; color: rgba(255,255,255,0.7);">
+          <div style="font-size: 24px; margin-bottom: 10px;">😴</div>
+          <div>Nenhum usuário online</div>
+        </div>
+        <div v-for="user in usuarios" :key="user.Nickname" class="user-item">
+          <p>
+            <span class="user-name">{{user.Nickname}}</span>
+            <span v-if="user.Nickname === nickname" class="user-badge">(você)</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Container Principal do Chat -->
+      <div class="container" v-if="connected">
+        <!-- Header do Chat -->
+        <div class="chat-header">
+          <div>
+            <label>Olá, {{nickname}}! 👋</label>
+            <div style="font-size: 12px; opacity: 0.7; margin-top: 4px;">
+              {{messages.length}} mensagem(s) no chat
+            </div>
+          </div>
+          <a href="#" @click="disconnect()" class="interactive-element">🚪 Sair</a>
+        </div>
+
+        <!-- Área de Mensagens -->
+        <ul class="chat-messages" ref="chatMessages">
+          <!-- Indicador de mensagens antigas removidas -->
+          <li v-if="removedMessagesCount > 0" class="message removed-messages-indicator">
+            <div class="message-content">
+              <p class="message-text">
+                🗑️ {{removedMessagesCount}} mensagem(ns) antiga(s) foi(ram) removida(s) automaticamente após 30 minutos de inatividade
+              </p>
+              <p class="message-timestamp">Sistema</p>
+            </div>
+          </li>
+
+          <li
+            v-for="(msg, idx) in messages"
+            :key="`msg-${idx}-${msg.SentAt}`"
+            class="message"
+            :class="[msg.From == nickname ? 'message-right' : '']"
+          >
+            <div :title="`${msg.From} - ${formatFullTimestamp(msg.SentAt)}`" class="message-avatar">
+              {{getAvatarText(msg.From)}}
+            </div>
+            <div class="message-content">
+              <div v-if="msg.From !== nickname" class="message-sender">{{msg.From}}</div>
+              <p class="message-text">{{msg.Content}}</p>
+              <p class="message-timestamp">{{ formatTimestamp(msg.SentAt) }}</p>
+            </div>
+          </li>
+
+          <!-- Indicador de digitação (placeholder para futuras implementações) -->
+          <li v-if="isTyping" class="message">
+            <div class="message-avatar typing-avatar">
+              <div class="typing-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+            </div>
+            <div class="message-content typing-indicator">
+              <p class="message-text">Alguém está digitando...</p>
+            </div>
+          </li>
+        </ul>
+
+        <!-- Formulário de Envio -->
+        <form class="form" @submit.prevent="sendMessage()">
+          <input 
+            class="input" 
+            v-model="message" 
+            placeholder="Digite sua mensagem..." 
+            maxlength="500"
+            ref="messageInput"
+            autocomplete="off"
+            :disabled="connectionStatus !== 'connected'"
+          />
+          <button 
+            class="button interactive-element" 
+            type="submit" 
+            :disabled="!message.trim() || connectionStatus !== 'connected'"
+          >
+            <span v-if="connectionStatus === 'connected'">📤 Enviar</span>
+            <span v-else>⏳ Aguarde</span>
+          </button>
+        </form>
+        
+        <!-- Status de Conexão e Informações -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+          <div class="connection-status" :class="{
+            'status-connected': connectionStatus === 'connected',
+            'status-connecting': connectionStatus === 'connecting',
+            'status-disconnected': connectionStatus === 'disconnected'
+          }">
+            <span v-if="connectionStatus === 'connected'">🟢 Conectado</span>
+            <span v-else-if="connectionStatus === 'connecting'">🟡 Conectando...</span>
+            <span v-else>🔴 Desconectado</span>
+          </div>
+          
+          <div v-if="lastActivityTime" style="font-size: 11px; opacity: 0.6; color: rgba(255,255,255,0.7);">
+            Última atividade: {{ formatTimestamp(lastActivityTime) }}
+          </div>
+        </div>
+
+        <!-- Informações sobre limpeza automática -->
+        <div style="text-align: center; margin-top: 15px; font-size: 11px; opacity: 0.5; color: rgba(255,255,255,0.6);">
+          💡 As mensagens são automaticamente removidas após 30 minutos de inatividade
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const { createApp, ref, nextTick } = Vue;
+
+      createApp({
+        data() {
+          return {
+            nickname: "",
+            connected: false,
+            ws: null,
+            message: "",
+            messages: [],
+            usuarios: [],
+            connectionStatus: 'disconnected',
+            removedMessagesCount: 0,
+            cleanupTimer: null,
+            lastActivityTime: null,
+            loadedMessagesInfo: '',
+            isTyping: false, // Para futuras implementações
+            messageHistory: [], // Histórico para navegação com setas
+            historyIndex: -1
+          };
+        },
+        mounted() {
+          // Carregar mensagens salvas ao iniciar
+          this.loadMessages();
+          // Iniciar timer de limpeza
+          this.startCleanupTimer();
+          // Carregar nickname salvo
+          const savedNickname = localStorage.getItem('chat_nickname');
+          if (savedNickname) {
+            this.nickname = savedNickname;
+          }
+          // Atualizar última atividade
+          this.updateLastActivity();
+          
+          // Adicionar listener para teclas de navegação
+          document.addEventListener('keydown', this.handleKeyNavigation);
+        },
+        beforeUnmount() {
+          if (this.cleanupTimer) {
+            clearInterval(this.cleanupTimer);
+          }
+          document.removeEventListener('keydown', this.handleKeyNavigation);
+        },
+        methods: {
+          sendMessage() {
+            if (!this.message.trim() || this.connectionStatus !== 'connected') return;
+            
+            const messageContent = this.message.trim();
+            
+            // Adicionar ao histórico
+            if (!this.messageHistory.includes(messageContent)) {
+              this.messageHistory.unshift(messageContent);
+              if (this.messageHistory.length > 50) {
+                this.messageHistory = this.messageHistory.slice(0, 50);
+              }
+            }
+            this.historyIndex = -1;
+            
+            const msg = {
+              From: this.nickname,
+              Content: messageContent,
+              SentAt: new Date().toISOString()
+            };
+            
+            try {
+              this.ws.send(JSON.stringify(msg));
+              this.message = "";
+              this.updateLastActivity();
+              
+              // Focar no input após enviar
+              this.$nextTick(() => {
+                if (this.$refs.messageInput) {
+                  this.$refs.messageInput.focus();
+                }
+              });
+            } catch (error) {
+              console.error('Erro ao enviar mensagem:', error);
+              this.connectionStatus = 'disconnected';
+            }
+          },
+          
+          handleKeyNavigation(event) {
+            if (!this.connected || document.activeElement !== this.$refs.messageInput) return;
+            
+            if (event.key === 'ArrowUp') {
+              event.preventDefault();
+              if (this.historyIndex < this.messageHistory.length - 1) {
+                this.historyIndex++;
+                this.message = this.messageHistory[this.historyIndex] || '';
+              }
+            } else if (event.key === 'ArrowDown') {
+              event.preventDefault();
+              if (this.historyIndex > 0) {
+                this.historyIndex--;
+                this.message = this.messageHistory[this.historyIndex] || '';
+              } else if (this.historyIndex === 0) {
+                this.historyIndex = -1;
+                this.message = '';
+              }
+            }
+          },
+          
+          onOpen(event) {
+            this.connected = true;
+            this.connectionStatus = 'connected';
+            console.log('Conectado ao WebSocket');
+            
+            // Focar no input de mensagem
+            this.$nextTick(() => {
+              if (this.$refs.messageInput) {
+                this.$refs.messageInput.focus();
+              }
+            });
+          },
+          
+          onMessage(event) {
+    
+            try {
+              const newMessage = JSON.parse(event.data);
+              
+              // Adicionar timestamp se não existir
+              if (!newMessage.SentAt) {
+                newMessage.SentAt = new Date().toISOString();
+              }
+              
+              this.messages.push(newMessage);
+              this.updateUsuarios();
+              this.saveMessages();
+              this.updateLastActivity();
+              
+              // Scroll automático para a última mensagem
+              this.$nextTick(() => {
+                this.scrollToBottom();
+              });
+              
+              // Notificação sonora (opcional)
+              if (newMessage.From !== this.nickname && 'Notification' in window) {
+                this.showNotification(newMessage);
+              }
+            } catch (error) {
+              console.error('Erro ao processar mensagem:', error);
+            }
+          },
+          
+          showNotification(message) {
+            if (Notification.permission === 'granted') {
+              new Notification(`Nova mensagem de ${message.From}`, {
+                body: message.Content,
+                icon: '/favicon.ico',
+                tag: 'chat-message'
+              });
+            } else if (Notification.permission !== 'denied') {
+              Notification.requestPermission().then(permission => {
+                if (permission === 'granted') {
+                  this.showNotification(message);
+                }
+              });
+            }
+          },
+          
+          onClose(event) {
+            this.connectionStatus = 'disconnected';
+            console.log('Conexão WebSocket fechada:', event.code, event.reason);
+            
+            // Tentar reconectar automaticamente após 3 segundos
+            if (this.connected) {
+              setTimeout(() => {
+                if (this.connectionStatus === 'disconnected' && this.nickname) {
+                  console.log('Tentando reconectar...');
+                  this.connect();
+                }
+              }, 3000);
+            }
+          },
+          
+          onError(event) {
+            this.connectionStatus = 'disconnected';
+            console.error('Erro no WebSocket:', event);
+          },
+          
+          disconnect() {
+            if (this.ws) {
+              this.ws.close();
+            }
+            this.connected = false;
+            this.connectionStatus = 'disconnected';
+            this.ws = null;
+            this.message = "";
+            this.usuarios = [];
+            this.loadedMessagesInfo = '';
+            
+            // Não limpar mensagens ao desconectar, apenas ao sair completamente
+            // this.messages = [];
+            // this.removedMessagesCount = 0;
+          },
+          
+          connect() {
+            if (!this.nickname.trim()) return;
+            
+            this.connectionStatus = 'connecting';
+            
+            // Salvar nickname
+            localStorage.setItem('chat_nickname', this.nickname);
+            
+            try {
+              // Conectar ao WebSocket
+              this.ws = new WebSocket(
+                "ws://127.0.0.1:8080/ws?nickname=" + encodeURIComponent(this.nickname)
+              );
+              
+              this.ws.onopen = this.onOpen;
+              this.ws.onmessage = this.onMessage;
+              this.ws.onclose = this.onClose;
+              this.ws.onerror = this.onError;
+              
+              // Timeout para conexão
+              setTimeout(() => {
+                if (this.connectionStatus === 'connecting') {
+                  this.connectionStatus = 'disconnected';
+                  console.error('Timeout na conexão WebSocket');
+                }
+              }, 10000);
+            } catch (error) {
+              console.error('Erro ao conectar:', error);
+              this.connectionStatus = 'disconnected';
+            }
+          },
+          
+          async updateUsuarios() {
+            try {
+              const res = await fetch("/clients");
+              if (res.ok) {
+                const clients = await res.json();
+                this.usuarios = clients || [];
+              }
+            } catch (error) {
+              console.error('Erro ao buscar usuários:', error);
+              this.usuarios = [];
+            }
+          },
+          
+          // Funções de persistência aprimoradas
+          saveMessages() {
+            try {
+              const dataToSave = {
+                messages: this.messages,
+                timestamp: Date.now(),
+                removedCount: this.removedMessagesCount,
+                nickname: this.nickname
+              };
+              localStorage.setItem('chat_messages', JSON.stringify(dataToSave));
+              localStorage.setItem('chat_last_activity', Date.now().toString());
+            } catch (error) {
+              console.error('Erro ao salvar mensagens:', error);
+            }
+          },
+          
+          loadMessages() {
+            try {
+              const savedData = localStorage.getItem('chat_messages');
+              const lastActivity = localStorage.getItem('chat_last_activity');
+              
+              if (savedData && lastActivity) {
+                const timeSinceLastActivity = Date.now() - parseInt(lastActivity);
+                const thirtyMinutes = 30 * 60 * 1000; // 30 minutos em ms
+                
+                if (timeSinceLastActivity < thirtyMinutes) {
+                  const data = JSON.parse(savedData);
+                  this.messages = data.messages || [];
+                  this.removedMessagesCount = data.removedCount || 0;
+                  
+                  const minutesAgo = Math.floor(timeSinceLastActivity / 60000);
+                  this.loadedMessagesInfo = `📥 ${this.messages.length} mensagem(s) carregada(s) (${minutesAgo}min atrás)`;
+                  
+                  console.log(`Carregadas ${this.messages.length} mensagens salvas`);
+                  
+                  // Scroll para o final após carregar
+                  this.$nextTick(() => {
+                    this.scrollToBottom();
+                  });
+                } else {
+                  // Limpar mensagens antigas
+                  const oldCount = this.getOldMessagesCount(savedData);
+                  this.clearOldMessages();
+                  this.loadedMessagesInfo = `🗑️ ${oldCount} mensagem(s) antiga(s) removida(s) por inatividade`;
+                  console.log('Mensagens antigas removidas por inatividade');
+                }
+              } else {
+                this.loadedMessagesInfo = '✨ Novo chat iniciado';
+              }
+            } catch (error) {
+              console.error('Erro ao carregar mensagens:', error);
+              this.clearOldMessages();
+              this.loadedMessagesInfo = '⚠️ Erro ao carregar mensagens anteriores';
+            }
+          },
+          
+          getOldMessagesCount(savedData) {
+            try {
+              const data = JSON.parse(savedData);
+              return (data.messages || []).length;
+            } catch {
+              return 0;
+            }
+          },
+          
+          clearOldMessages() {
+            const currentCount = this.messages.length;
+            this.messages = [];
+            this.removedMessagesCount += currentCount;
+            localStorage.removeItem('chat_messages');
+            localStorage.removeItem('chat_last_activity');
+          },
+          
+          updateLastActivity() {
+            this.lastActivityTime = Date.now();
+            localStorage.setItem('chat_last_activity', this.lastActivityTime.toString());
+          },
+          
+          startCleanupTimer() {
+            // Verificar a cada 1 minuto se deve limpar mensagens
+            this.cleanupTimer = setInterval(() => {
+              const lastActivity = localStorage.getItem('chat_last_activity');
+              if (lastActivity) {
+                const timeSinceLastActivity = Date.now() - parseInt(lastActivity);
+                const thirtyMinutes = 30 * 60 * 1000;
+                
+                if (timeSinceLastActivity >= thirtyMinutes && this.messages.length > 0) {
+                  console.log('Limpando mensagens por inatividade...');
+                  const removedCount = this.messages.length;
+                  this.clearOldMessages();
+                  
+                  // Mostrar notificação se o usuário estiver conectado
+                  if (this.connected) {
+                    this.loadedMessagesInfo = `🗑️ ${removedCount} mensagem(s) removida(s) por inatividade`;
+                  }
+                }
+              }
+            }, 60 * 1000); // 1 minuto
+          },
+          
+          // Funções utilitárias aprimoradas
+          getAvatarText(nickname) {
+            if (!nickname) return 'AN';
+            return nickname.substr(0, 2).toUpperCase();
+          },
+          
+          formatTimestamp(timestamp) {
+            if (!timestamp) return '';
+            
+            try {
+              const date = new Date(timestamp);
+              const now = new Date();
+              const diffMs = now - date;
+              const diffMins = Math.floor(diffMs / 60000);
+              const diffHours = Math.floor(diffMs / 3600000);
+              const diffDays = Math.floor(diffMs / 86400000);
+              
+              if (diffMins < 1) return 'agora';
+              if (diffMins < 60) return `${diffMins}min`;
+              if (diffHours < 24) return `${diffHours}h`;
+              if (diffDays < 7) return `${diffDays}d`;
+              
+              return date.toLocaleDateString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit'
+              });
+            } catch (error) {
+              return '';
+            }
+          },
+          
+          formatFullTimestamp(timestamp) {
+            if (!timestamp) return '';
+            
+            try {
+              const date = new Date(timestamp);
+              return date.toLocaleString('pt-BR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+              });
+            } catch (error) {
+              return '';
+            }
+          },
+          
+          scrollToBottom() {
+            const chatMessages = this.$refs.chatMessages;
+            if (chatMessages) {
+              chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+          }
+        }
+      }).mount("#app");
+    </script>
+  </body>
+</html>
+
