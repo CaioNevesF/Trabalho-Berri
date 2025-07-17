@@ -358,8 +358,11 @@
             
             try {
               // Conectar ao WebSocket
-              this.ws = new WebSocket(
-                "ws://127.0.0.1:8080/ws?nickname=" + encodeURIComponent(this.nickname)
+              const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+              const host = window.location.host;
+              const url = `${protocol}://${host}/ws?nickname=${encodeURIComponent(this.nickname)}`;
+              this.ws = new WebSocket(url);
+
               );
               
               this.ws.onopen = this.onOpen;
