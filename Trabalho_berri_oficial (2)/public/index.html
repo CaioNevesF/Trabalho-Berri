@@ -139,13 +139,13 @@
             <span v-else>🔴 Desconectado</span>
           </div>
           
-          <div v-if="lastActivityTime" style="font-size: 11px; opacity: 0.6; color: rgba(255,255,255,0.7);">
+          <div v-if="lastActivityTime" style="font-size: 11px; opacity: 0.6; color: rgba(0,0,0,0);">
             Última atividade: {{ formatTimestamp(lastActivityTime) }}
           </div>
         </div>
 
         <!-- Informações sobre limpeza automática -->
-        <div style="text-align: center; margin-top: 15px; font-size: 11px; opacity: 0.5; color: rgba(255,255,255,0.6);">
+        <div style="text-align: center; margin-top: 15px; font-size: 11px; opacity: 0.5; color: rgba(0,0,0,0);">
           💡 As mensagens são automaticamente removidas após 30 minutos de inatividade
         </div>
       </div>
